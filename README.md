@@ -1,5 +1,6 @@
 # Boids-Flocking-Model
 This is an interactive 2D Boids flocking model with sliders for separation, alignment, and cohesion.
+https://betterbeginagain.github.io/Boids-Flocking-Model/
 
 In 1986, computer graphics researcher Craig Reynolds tackled an animation problem: animating a flock of hundreds of birds frame by frame by hand was nearly impossible, and scripting a central path for them made the flock look stiff and mechanical.
 
