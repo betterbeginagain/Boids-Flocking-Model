@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Boids Flocking Simulation</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+    body {
+      background-color: #0f172a;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #38bdf8;
+    }
+    .main-container {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      max-width: 900px;
+      width: 100%;
+    }
+    .canvas-wrapper {
+      position: relative;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+      border: 1px solid #1e293b;
+      background: #090d16;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 480px;
+      cursor: crosshair;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 14px;
+      background: #1e293b;
+      padding: 16px;
+      border-radius: 12px;
+      border: 1px solid #334155;
+    }
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .control-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: #94a3b8;
+    }
+    .control-header span.val {
+      color: #38bdf8;
+      font-family: monospace;
+    }
+    input[type="range"] {
+      appearance: none;
+      background: #334155;
+      height: 6px;
+      border-radius: 4px;
+      outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #38bdf8;
+      cursor: pointer;
+      transition: transform 0.1s;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+    }
+    .buttons {
+      display: flex;
+      gap: 10px;
+      grid-column: 1 / -1;
+      margin-top: 4px;
+    }
+    button {
+      flex: 1;
+      padding: 8px 12px;
+      border: none;
+      border-radius: 6px;
+      font-weight: 500;
+      font-size: 0.85rem;
+      cursor: pointer;
+      background: #334155;
+      color: #f8fafc;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #475569;
+    }
+    button.active {
+      background: #0284c7;
+      color: #fff;
+    }
+    .info-bar {
+      font-size: 0.8rem;
+      color: #64748b;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="main-container">
+    <div style="text-align: center;">
+      <h1>Craig Reynolds' Boids Simulation</h1>
+      <p class="info-bar">Click the canvas to scatter the boids | Adjust sliders to change emergent behavior</p>
+    </div>
+
+    <div class="canvas-wrapper">
+      <canvas id="boidsCanvas"></canvas>
+    </div>
+
+    <div class="controls">
+      <div class="control-group">
+        <div class="control-header">
+          <span>Separation</span>
+          <span id="sepVal" class="val">1.5</span>
+        </div>
+        <input type="range" id="separation" min="0" max="3" step="0.1" value="1.5">
+      </div>
+
+      <div class="control-group">
+        <div class="control-header">
+          <span>Alignment</span>
+          <span id="aliVal" class="val">1.0</span>
+        </div>
+        <input type="range" id="alignment" min="0" max="3" step="0.1" value="1.0">
+      </div>
+
+      <div class="control-group">
+        <div class="control-header">
+          <span>Cohesion</span>
+          <span id="cohVal" class="val">1.0</span>
+        </div>
+        <input type="range" id="cohesion" min="0" max="3" step="0.1" value="1.0">
+      </div>
+
+      <div class="control-group">
+        <div class="control-header">
+          <span>Perception Radius</span>
+          <span id="radVal" class="val">50px</span>
+        </div>
+        <input type="range" id="radius" min="20" max="120" step="5" value="50">
+      </div>
+
+      <div class="buttons">
+        <button id="togglePredator">Add Predator</button>
+        <button id="resetParams">Reset Defaults</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("boidsCanvas");
+    const ctx = canvas.getContext("2d");
+
+    let width, height;
+    function resize() {
+      const rect = canvas.getBoundingClientRect();
+      width = canvas.width = rect.width;
+      height = canvas.height = rect.height;
+    }
+    window.addEventListener("resize", resize);
+    resize();
+
+    // Configuration / Sliders
+    const config = {
+      separationWeight: 1.5,
+      alignmentWeight: 1.0,
+      cohesionWeight: 1.0,
+      perceptionRadius: 50,
+      maxSpeed: 3.5,
+      maxForce: 0.15,
+      boidCount: 160,
+      hasPredator: false
+    };
+
+    // Vector Helper
+    class Vector {
+      constructor(x = 0, y = 0) {
+        this.x = x;
+        this.y = y;
+      }
+      add(v) { this.x += v.x; this.y += v.y; return this; }
+      sub(v) { this.x -= v.x; this.y -= v.y; return this; }
+      mult(n) { this.x *= n; this.y *= n; return this; }
+      div(n) { if (n !== 0) { this.x /= n; this.y /= n; } return this; }
+      mag() { return Math.hypot(this.x, this.y); }
+      setMag(n) {
+        const m = this.mag();
+        if (m !== 0) { this.mult(n / m); }
+        return this;
+      }
+      limit(max) {
+        if (this.mag() > max) this.setMag(max);
+        return this;
+      }
+      dist(v) { return Math.hypot(this.x - v.x, this.y - v.y); }
+      copy() { return new Vector(this.x, this.y); }
+    }
+
+    // Boid Class
+    class Boid {
+      constructor(x, y) {
+        this.position = new Vector(x, y);
+        this.velocity = new Vector((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4);
+        this.acceleration = new Vector();
+        this.size = 5;
+      }
+
+      edges() {
+        if (this.position.x < -this.size) this.position.x = width + this.size;
+        if (this.position.x > width + this.size) this.position.x = -this.size;
+        if (this.position.y < -this.size) this.position.y = height + this.size;
+        if (this.position.y > height + this.size) this.position.y = -this.size;
+      }
+
+      flock(boids, predator) {
+        let sepSteer = new Vector();
+        let aliSteer = new Vector();
+        let cohSteer = new Vector();
+        let total = 0;
+
+        for (let other of boids) {
+          let d = this.position.dist(other.position);
+          if (other !== this && d < config.perceptionRadius) {
+            // 1. Separation
+            let diff = this.position.copy().sub(other.position);
+            diff.div(d * d); // inverse square weighting
+            sepSteer.add(diff);
+
+            // 2. Alignment
+            aliSteer.add(other.velocity);
+
+            // 3. Cohesion
+            cohSteer.add(other.position);
+
+            total++;
+          }
+        }
+
+        if (total > 0) {
+          // Separation calculation
+          sepSteer.div(total);
+          if (sepSteer.mag() > 0) {
+            sepSteer.setMag(config.maxSpeed);
+            sepSteer.sub(this.velocity);
+            sepSteer.limit(config.maxForce * 1.5);
+          }
+
+          // Alignment calculation
+          aliSteer.div(total);
+          aliSteer.setMag(config.maxSpeed);
+          aliSteer.sub(this.velocity);
+          aliSteer.limit(config.maxForce);
+
+          // Cohesion calculation
+          cohSteer.div(total);
+          cohSteer.sub(this.position);
+          cohSteer.setMag(config.maxSpeed);
+          cohSteer.sub(this.velocity);
+          cohSteer.limit(config.maxForce);
+        }
+
+        sepSteer.mult(config.separationWeight);
+        aliSteer.mult(config.alignmentWeight);
+        cohSteer.mult(config.cohesionWeight);
+
+        this.acceleration.add(sepSteer);
+        this.acceleration.add(aliSteer);
+        this.acceleration.add(cohSteer);
+
+        // Flee from predator
+        if (predator) {
+          let d = this.position.dist(predator.position);
+          if (d < 100) {
+            let flee = this.position.copy().sub(predator.position);
+            flee.setMag(config.maxSpeed * 1.8);
+            flee.sub(this.velocity);
+            flee.limit(config.maxForce * 2.5);
+            this.acceleration.add(flee);
+          }
+        }
+      }
+
+      update() {
+        this.velocity.add(this.acceleration);
+        this.velocity.limit(config.maxSpeed);
+        this.position.add(this.velocity);
+        this.acceleration.mult(0);
+        this.edges();
+      }
+
+      draw() {
+        let angle = Math.atan2(this.velocity.y, this.velocity.x);
+        ctx.save();
+        ctx.translate(this.position.x, this.position.y);
+        ctx.rotate(angle);
+
+        ctx.fillStyle = "#38bdf8";
+        ctx.beginPath();
+        ctx.moveTo(this.size * 2, 0);
+        ctx.lineTo(-this.size, this.size);
+        ctx.lineTo(-this.size / 2, 0);
+        ctx.lineTo(-this.size, -this.size);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+      }
+    }
+
+    // Predator Class (Falcon)
+    class Predator {
+      constructor(x, y) {
+        this.position = new Vector(x, y);
+        this.velocity = new Vector(2, 2);
+        this.acceleration = new Vector();
+        this.size = 9;
+      }
+
+      update(boids) {
+        // Find nearest boid to chase
+        let nearest = null;
+        let minDist = Infinity;
+        for (let b of boids) {
+          let d = this.position.dist(b.position);
+          if (d < minDist) {
+            minDist = d;
+            nearest = b;
+          }
+        }
+
+        if (nearest) {
+          let desire = nearest.position.copy().sub(this.position);
+          desire.setMag(config.maxSpeed * 0.95);
+          let steer = desire.sub(this.velocity);
+          steer.limit(0.08);
+          this.acceleration.add(steer);
+        }
+
+        this.velocity.add(this.acceleration);
+        this.velocity.limit(config.maxSpeed * 1.05);
+        this.position.add(this.velocity);
+        this.acceleration.mult(0);
+
+        if (this.position.x < -this.size) this.position.x = width + this.size;
+        if (this.position.x > width + this.size) this.position.x = -this.size;
+        if (this.position.y < -this.size) this.position.y = height + this.size;
+        if (this.position.y > height + this.size) this.position.y = -this.size;
+      }
+
+      draw() {
+        let angle = Math.atan2(this.velocity.y, this.velocity.x);
+        ctx.save();
+        ctx.translate(this.position.x, this.position.y);
+        ctx.rotate(angle);
+
+        ctx.fillStyle = "#f43f5e";
+        ctx.beginPath();
+        ctx.moveTo(this.size * 2.2, 0);
+        ctx.lineTo(-this.size, this.size * 1.2);
+        ctx.lineTo(-this.size / 2, 0);
+        ctx.lineTo(-this.size, -this.size * 1.2);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+      }
+    }
+
+    // Initialize flock
+    const boids = [];
+    for (let i = 0; i < config.boidCount; i++) {
+      boids.push(new Boid(Math.random() * width, Math.random() * height));
+    }
+    let predator = null;
+
+    // Canvas click to repel
+    canvas.addEventListener("click", (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const clickY = e.clientY - rect.top;
+      const clickPos = new Vector(clickX, clickY);
+
+      for (let b of boids) {
+        let d = b.position.dist(clickPos);
+        if (d < 120) {
+          let force = b.position.copy().sub(clickPos);
+          force.setMag(config.maxSpeed * 2.5);
+          b.acceleration.add(force);
+        }
+      }
+    });
+
+    // Main Loop
+    function animate() {
+      ctx.fillStyle = "rgba(9, 13, 22, 0.25)";
+      ctx.fillRect(0, 0, width, height);
+
+      if (predator) {
+        predator.update(boids);
+        predator.draw();
+      }
+
+      for (let boid of boids) {
+        boid.flock(boids, predator);
+        boid.update();
+        boid.draw();
+      }
+
+      requestAnimationFrame(animate);
+    }
+    animate();
+
+    // UI Listeners
+    const sepInput = document.getElementById("separation");
+    const aliInput = document.getElementById("alignment");
+    const cohInput = document.getElementById("cohesion");
+    const radInput = document.getElementById("radius");
+
+    sepInput.addEventListener("input", (e) => {
+      config.separationWeight = parseFloat(e.target.value);
+      document.getElementById("sepVal").textContent = config.separationWeight.toFixed(1);
+    });
+    aliInput.addEventListener("input", (e) => {
+      config.alignmentWeight = parseFloat(e.target.value);
+      document.getElementById("aliVal").textContent = config.alignmentWeight.toFixed(1);
+    });
+    cohInput.addEventListener("input", (e) => {
+      config.cohesionWeight = parseFloat(e.target.value);
+      document.getElementById("cohVal").textContent = config.cohesionWeight.toFixed(1);
+    });
+    radInput.addEventListener("input", (e) => {
+      config.perceptionRadius = parseFloat(e.target.value);
+      document.getElementById("radVal").textContent = config.perceptionRadius + "px";
+    });
+
+    const predBtn = document.getElementById("togglePredator");
+    predBtn.addEventListener("click", () => {
+      config.hasPredator = !config.hasPredator;
+      if (config.hasPredator) {
+        predator = new Predator(width / 2, height / 2);
+        predBtn.classList.add("active");
+        predBtn.textContent = "Remove Predator";
+      } else {
+        predator = null;
+        predBtn.classList.remove("active");
+        predBtn.textContent = "Add Predator";
+      }
+    });
+
+    document.getElementById("resetParams").addEventListener("click", () => {
+      config.separationWeight = 1.5;
+      config.alignmentWeight = 1.0;
+      config.cohesionWeight = 1.0;
+      config.perceptionRadius = 50;
+
+      sepInput.value = 1.5;
+      aliInput.value = 1.0;
+      cohInput.value = 1.0;
+      radInput.value = 50;
+
+      document.getElementById("sepVal").textContent = "1.5";
+      document.getElementById("aliVal").textContent = "1.0";
+      document.getElementById("cohVal").textContent = "1.0";
+      document.getElementById("radVal").textContent = "50px";
+    });
+  </script>
+</body>
+</html>
